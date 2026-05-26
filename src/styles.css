@@ -26,6 +26,10 @@ body {
   background-size: 28px 28px;
 }
 
+body.is-drawing {
+  overflow: hidden;
+}
+
 button,
 input,
 textarea {
@@ -186,6 +190,10 @@ label {
   grid-template-rows: auto minmax(420px, 1fr);
   min-height: calc(100vh - 7rem);
   overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .tool-row {
@@ -216,6 +224,10 @@ label {
     linear-gradient(#e7dbc8 1px, transparent 1px),
     #fffdf7;
   background-size: 100% 34px;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  user-select: none;
 }
 
 .drawing-canvas {
@@ -225,6 +237,10 @@ label {
   min-height: 420px;
   cursor: crosshair;
   touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .side-panel {

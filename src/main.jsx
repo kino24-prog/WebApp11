@@ -84,6 +84,27 @@ function DrawingCanvas({ strokes, setStrokes, penSize }) {
     return () => window.removeEventListener('resize', redraw);
   }, [redraw]);
 
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return undefined;
+
+    const blockBrowserGesture = (event) => {
+      event.preventDefault();
+    };
+
+    canvas.addEventListener('contextmenu', blockBrowserGesture);
+    canvas.addEventListener('selectstart', blockBrowserGesture);
+    canvas.addEventListener('touchstart', blockBrowserGesture, { passive: false });
+    canvas.addEventListener('touchmove', blockBrowserGesture, { passive: false });
+
+    return () => {
+      canvas.removeEventListener('contextmenu', blockBrowserGesture);
+      canvas.removeEventListener('selectstart', blockBrowserGesture);
+      canvas.removeEventListener('touchstart', blockBrowserGesture);
+      canvas.removeEventListener('touchmove', blockBrowserGesture);
+    };
+  }, []);
+
   const getPoint = (event) => {
     const rect = canvasRef.current.getBoundingClientRect();
     return {
@@ -94,6 +115,8 @@ function DrawingCanvas({ strokes, setStrokes, penSize }) {
 
   const startDrawing = (event) => {
     event.preventDefault();
+    window.getSelection()?.removeAllRanges();
+    document.body.classList.add('is-drawing');
     canvasRef.current.setPointerCapture(event.pointerId);
     currentStrokeRef.current = {
       color: '#1d1d1d',
@@ -127,6 +150,7 @@ function DrawingCanvas({ strokes, setStrokes, penSize }) {
   const endDrawing = (event) => {
     if (!currentStrokeRef.current) return;
     event.preventDefault();
+    document.body.classList.remove('is-drawing');
 
     const completedStroke = currentStrokeRef.current;
     currentStrokeRef.current = null;
@@ -144,6 +168,8 @@ function DrawingCanvas({ strokes, setStrokes, penSize }) {
       ref={canvasRef}
       className="drawing-canvas"
       aria-label="手書き数式入力エリア"
+      onContextMenu={(event) => event.preventDefault()}
+      onSelect={(event) => event.preventDefault()}
       onPointerDown={startDrawing}
       onPointerMove={continueDrawing}
       onPointerUp={endDrawing}
