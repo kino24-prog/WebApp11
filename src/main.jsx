@@ -44,6 +44,9 @@ function FormulaPreview({ formula }) {
 function DrawingCanvas({ strokes, setStrokes, penSize }) {
   const canvasRef = useRef(null);
   const currentStrokeRef = useRef(null);
+  const activePointerIdRef = useRef(null);
+  const activePointersRef = useRef(new Set());
+  const multiTouchBlockedRef = useRef(false);
 
   const drawStroke = useCallback((context, stroke) => {
     if (stroke.points.length < 2) return;
@@ -113,11 +116,45 @@ function DrawingCanvas({ strokes, setStrokes, penSize }) {
     };
   };
 
+  const finishCurrentStroke = () => {
+    const completedStroke = currentStrokeRef.current;
+    currentStrokeRef.current = null;
+    activePointerIdRef.current = null;
+    document.body.classList.remove('is-drawing');
+
+    if (!completedStroke) return;
+
+    if (completedStroke.points.length === 1) {
+      const point = completedStroke.points[0];
+      completedStroke.points.push({ x: point.x + 0.1, y: point.y + 0.1 });
+    }
+
+    setStrokes((current) => [...current, completedStroke]);
+  };
+
+  const cancelCurrentStroke = () => {
+    currentStrokeRef.current = null;
+    activePointerIdRef.current = null;
+    document.body.classList.remove('is-drawing');
+    redraw();
+  };
+
   const startDrawing = (event) => {
     event.preventDefault();
     window.getSelection()?.removeAllRanges();
+
+    activePointersRef.current.add(event.pointerId);
+
+    if (activePointersRef.current.size > 1 || !event.isPrimary) {
+      multiTouchBlockedRef.current = true;
+      cancelCurrentStroke();
+      return;
+    }
+
+    multiTouchBlockedRef.current = false;
     document.body.classList.add('is-drawing');
     canvasRef.current.setPointerCapture(event.pointerId);
+    activePointerIdRef.current = event.pointerId;
     currentStrokeRef.current = {
       color: '#1d1d1d',
       width: Number(penSize),
@@ -126,8 +163,14 @@ function DrawingCanvas({ strokes, setStrokes, penSize }) {
   };
 
   const continueDrawing = (event) => {
-    if (!currentStrokeRef.current) return;
     event.preventDefault();
+    if (
+      multiTouchBlockedRef.current ||
+      event.pointerId !== activePointerIdRef.current ||
+      !currentStrokeRef.current
+    ) {
+      return;
+    }
 
     const point = getPoint(event);
     currentStrokeRef.current.points.push(point);
@@ -148,19 +191,25 @@ function DrawingCanvas({ strokes, setStrokes, penSize }) {
   };
 
   const endDrawing = (event) => {
-    if (!currentStrokeRef.current) return;
     event.preventDefault();
-    document.body.classList.remove('is-drawing');
+    activePointersRef.current.delete(event.pointerId);
 
-    const completedStroke = currentStrokeRef.current;
-    currentStrokeRef.current = null;
-
-    if (completedStroke.points.length === 1) {
-      const point = completedStroke.points[0];
-      completedStroke.points.push({ x: point.x + 0.1, y: point.y + 0.1 });
+    if (event.pointerId !== activePointerIdRef.current) {
+      if (activePointersRef.current.size === 0) {
+        multiTouchBlockedRef.current = false;
+      }
+      return;
     }
 
-    setStrokes((current) => [...current, completedStroke]);
+    if (multiTouchBlockedRef.current) {
+      cancelCurrentStroke();
+      if (activePointersRef.current.size === 0) {
+        multiTouchBlockedRef.current = false;
+      }
+      return;
+    }
+
+    finishCurrentStroke();
   };
 
   return (
