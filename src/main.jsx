@@ -41,12 +41,48 @@ function FormulaPreview({ formula }) {
   return <div className="formula-preview" dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
-function DrawingCanvas({ strokes, setStrokes, penSize }) {
+function DrawingCanvas({ strokes, setStrokes, tool, penSize, eraserSize }) {
   const canvasRef = useRef(null);
   const currentStrokeRef = useRef(null);
   const activePointerIdRef = useRef(null);
   const activePointersRef = useRef(new Set());
   const multiTouchBlockedRef = useRef(false);
+  const [eraserPoint, setEraserPoint] = useState(null);
+
+  const distanceToSegment = (point, start, end) => {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const lengthSquared = dx * dx + dy * dy;
+
+    if (lengthSquared === 0) {
+      return Math.hypot(point.x - start.x, point.y - start.y);
+    }
+
+    const t = Math.max(
+      0,
+      Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared),
+    );
+    const projection = {
+      x: start.x + t * dx,
+      y: start.y + t * dy,
+    };
+
+    return Math.hypot(point.x - projection.x, point.y - projection.y);
+  };
+
+  const strokeHitsEraser = (stroke, point, radius) => {
+    if (stroke.points.some((strokePoint) => Math.hypot(strokePoint.x - point.x, strokePoint.y - point.y) <= radius)) {
+      return true;
+    }
+
+    for (let index = 1; index < stroke.points.length; index += 1) {
+      if (distanceToSegment(point, stroke.points[index - 1], stroke.points[index]) <= radius) {
+        return true;
+      }
+    }
+
+    return false;
+  };
 
   const drawStroke = useCallback((context, stroke) => {
     if (stroke.points.length < 2) return;
@@ -136,7 +172,14 @@ function DrawingCanvas({ strokes, setStrokes, penSize }) {
     currentStrokeRef.current = null;
     activePointerIdRef.current = null;
     document.body.classList.remove('is-drawing');
+    setEraserPoint(null);
     redraw();
+  };
+
+  const eraseAtPoint = (point) => {
+    setStrokes((current) =>
+      current.filter((stroke) => !strokeHitsEraser(stroke, point, Number(eraserSize) / 2)),
+    );
   };
 
   const startDrawing = (event) => {
@@ -155,6 +198,14 @@ function DrawingCanvas({ strokes, setStrokes, penSize }) {
     document.body.classList.add('is-drawing');
     canvasRef.current.setPointerCapture(event.pointerId);
     activePointerIdRef.current = event.pointerId;
+
+    if (tool === 'eraser') {
+      const point = getPoint(event);
+      setEraserPoint(point);
+      eraseAtPoint(point);
+      return;
+    }
+
     currentStrokeRef.current = {
       color: '#1d1d1d',
       width: Number(penSize),
@@ -166,13 +217,23 @@ function DrawingCanvas({ strokes, setStrokes, penSize }) {
     event.preventDefault();
     if (
       multiTouchBlockedRef.current ||
-      event.pointerId !== activePointerIdRef.current ||
-      !currentStrokeRef.current
+      event.pointerId !== activePointerIdRef.current
     ) {
       return;
     }
 
     const point = getPoint(event);
+
+    if (tool === 'eraser') {
+      setEraserPoint(point);
+      eraseAtPoint(point);
+      return;
+    }
+
+    if (!currentStrokeRef.current) {
+      return;
+    }
+
     currentStrokeRef.current.points.push(point);
 
     const canvas = canvasRef.current;
@@ -209,28 +270,50 @@ function DrawingCanvas({ strokes, setStrokes, penSize }) {
       return;
     }
 
+    if (tool === 'eraser') {
+      activePointerIdRef.current = null;
+      document.body.classList.remove('is-drawing');
+      setEraserPoint(null);
+      return;
+    }
+
     finishCurrentStroke();
   };
 
   return (
-    <canvas
-      ref={canvasRef}
-      className="drawing-canvas"
-      aria-label="手書き数式入力エリア"
-      onContextMenu={(event) => event.preventDefault()}
-      onSelect={(event) => event.preventDefault()}
-      onPointerDown={startDrawing}
-      onPointerMove={continueDrawing}
-      onPointerUp={endDrawing}
-      onPointerCancel={endDrawing}
-      onPointerLeave={endDrawing}
-    />
+    <div className="canvas-touch-layer">
+      <canvas
+        ref={canvasRef}
+        className={`drawing-canvas ${tool === 'eraser' ? 'is-eraser' : ''}`}
+        aria-label="手書き数式入力エリア"
+        onContextMenu={(event) => event.preventDefault()}
+        onSelect={(event) => event.preventDefault()}
+        onPointerDown={startDrawing}
+        onPointerMove={continueDrawing}
+        onPointerUp={endDrawing}
+        onPointerCancel={endDrawing}
+        onPointerLeave={endDrawing}
+      />
+      {tool === 'eraser' && eraserPoint && (
+        <span
+          className="eraser-cursor"
+          style={{
+            width: `${eraserSize}px`,
+            height: `${eraserSize}px`,
+            left: `${eraserPoint.x}px`,
+            top: `${eraserPoint.y}px`,
+          }}
+        />
+      )}
+    </div>
   );
 }
 
 function EditorView({ initialNote, onCancel, onSaved }) {
   const [draft, setDraft] = useState(initialNote);
+  const [tool, setTool] = useState('pen');
   const [penSize, setPenSize] = useState(4);
+  const [eraserSize, setEraserSize] = useState(34);
   const [status, setStatus] = useState('');
   const canvasHostRef = useRef(null);
 
@@ -298,22 +381,44 @@ function EditorView({ initialNote, onCancel, onSaved }) {
       <section className="editor-shell">
         <div className="canvas-panel">
           <div className="tool-row">
-            <button type="button" onClick={undo} disabled={!draft.strokes.length}>
-              戻る
-            </button>
-            <button type="button" onClick={clear} disabled={!draft.strokes.length}>
-              クリア
-            </button>
-            <label className="pen-control">
-              太さ
+            <div className="tool-actions">
+              <button type="button" onClick={undo} disabled={!draft.strokes.length}>
+                戻る
+              </button>
+              <button type="button" onClick={clear} disabled={!draft.strokes.length}>
+                クリア
+              </button>
+            </div>
+            <div className="tool-switch" aria-label="描画ツール">
+              <button
+                className={tool === 'pen' ? 'active-tool' : ''}
+                type="button"
+                onClick={() => setTool('pen')}
+              >
+                ペン
+              </button>
+              <button
+                className={tool === 'eraser' ? 'active-tool' : ''}
+                type="button"
+                onClick={() => setTool('eraser')}
+              >
+                消しゴム
+              </button>
+            </div>
+            <label className="size-control">
+              {tool === 'pen' ? 'ペン太さ' : '消しゴム'}
               <input
                 type="range"
-                min="2"
-                max="12"
-                value={penSize}
-                onChange={(event) => setPenSize(event.target.value)}
+                min={tool === 'pen' ? '2' : '16'}
+                max={tool === 'pen' ? '12' : '90'}
+                value={tool === 'pen' ? penSize : eraserSize}
+                onChange={(event) =>
+                  tool === 'pen'
+                    ? setPenSize(event.target.value)
+                    : setEraserSize(event.target.value)
+                }
               />
-              <span>{penSize}</span>
+              <span>{tool === 'pen' ? penSize : eraserSize}</span>
             </label>
           </div>
           <div className="paper-canvas" ref={canvasHostRef}>
@@ -325,7 +430,9 @@ function EditorView({ initialNote, onCancel, onSaved }) {
                   strokes: typeof updater === 'function' ? updater(current.strokes) : updater,
                 }));
               }}
+              tool={tool}
               penSize={penSize}
+              eraserSize={eraserSize}
             />
           </div>
         </div>
